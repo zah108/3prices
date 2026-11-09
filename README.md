@@ -12,6 +12,9 @@
 
 This code was created with the help of an LLM (Large Language Model) assistant.
 
+![3price](https://img.shields.io/badge/Python-3.10+-blue.svg)
+![License](https://img.shields.io/badge/license-MIT-green.svg)
+
 A system for analyzing the prices of financial assets: for each instrument, the system determines which of three price ranges its current price falls into, computes the return over the period, and generates a PDF report containing a summary table and charts. The configuration file (Config) lists the tickers and descriptions of assets traded on the Moscow Exchange.
 
 The code can be used to analyze any financial asset by changing the ticker and its description. The `txt` folder must contain the data downloaded for that asset (with `DOWNLOAD_MOEX = True` the system downloads it itself).

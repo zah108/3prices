@@ -1,0 +1,21 @@
+# macOS
+.DS_Store
+
+# Python
+__pycache__/
+*.py[cod]
+
+# IDE
+.vscode/
+.idea/
+
+# Working notes (not for publication)
+SKILL.md
+
+# Working screenshots in docs/ (only list-*.jpg used by the README are published)
+docs/Снимок*
+
+# Project data (not published)
+txt/
+logs/
+reports/

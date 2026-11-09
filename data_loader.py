@@ -1,0 +1,90 @@
+"""Reading local quotes from txt files in the txt folder."""
+
+import glob
+import logging
+import os
+
+import pandas as pd
+
+
+def _extract_ticker(file_name: str) -> str | None:
+    """Extract the ticker from the file name, e.g. 'SBER-d-5y.txt' -> 'SBER'."""
+    for suffix in ('-d-5y.txt', '-all-d.txt'):
+        if file_name.endswith(suffix):
+            return file_name[:-len(suffix)]
+    return None
+
+
+def _parse_price_file(file_path: str) -> pd.DataFrame:
+    """Read a CSV with an arbitrary separator and normalize the date/price columns."""
+    df = pd.read_csv(file_path, sep=None, engine='python')
+    df.columns = [str(col).strip().lower().replace('<', '').replace('>', '') for col in df.columns]
+
+    date_col = None
+    for possible_date in ['begin', 'date', 'timestamp', 'time']:
+        if possible_date in df.columns:
+            date_col = possible_date
+            break
+
+    close_col = None
+    for possible_close in ['close', 'last', 'price']:
+        if possible_close in df.columns:
+            close_col = possible_close
+            break
+
+    if not date_col or not close_col:
+        raise ValueError('не найдены колонки даты или цены. Доступные: ' + str(list(df.columns)))
+
+    df = df.rename(columns={date_col: 'begin', close_col: 'close'})
+    df['begin'] = pd.to_datetime(df['begin'], errors='coerce')
+    df['close'] = pd.to_numeric(df['close'], errors='coerce')
+    df = df.dropna(subset=['begin', 'close']).sort_values('begin').reset_index(drop=True)
+    df['close'] = df['close'].round(2)
+    return df
+
+
+def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp) -> dict[str, pd.DataFrame]:
+    """Read all matching files and return {ticker: DataFrame} with data from start_date.
+
+    Files with tickers missing from assets_config are silently skipped;
+    a file with a broken structure only produces a log entry and never
+    stops the loading.
+    """
+    file_patterns = [
+        os.path.join(txt_folder, '*-d-5y.txt'),
+        os.path.join(txt_folder, '*-all-d.txt'),
+    ]
+
+    all_files = []
+    for pattern in file_patterns:
+        all_files.extend(glob.glob(pattern))
+
+    data_dict: dict[str, pd.DataFrame] = {}
+    for file_path in all_files:
+        file_name = os.path.basename(file_path)
+        ticker = _extract_ticker(file_name)
+
+        # Ignore the file if the ticker is not in the Config
+        if ticker is None or ticker not in assets_config:
+            continue
+
+        try:
+            df = _parse_price_file(file_path)
+        except ValueError as e:
+            logging.error(f"В файле {file_name} {e}")
+            continue
+        except Exception as e:
+            logging.error(f"Ошибка обработки {file_name}: {e}")
+            continue
+
+        # Filter the data: keep only the data starting from January 1 of the computed year
+        df = df[df['begin'] >= start_date].reset_index(drop=True)
+
+        if df.empty:
+            logging.warning(f"Файл {file_name} не содержит данных после {start_date.strftime('%Y-%m-%d')}")
+            continue
+
+        data_dict[ticker] = df
+        logging.info(f"Успешно прочитан файл: {file_name} ({len(df)} строк начиная с {start_date.strftime('%Y-%m-%d')})")
+
+    return data_dict

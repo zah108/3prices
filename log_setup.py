@@ -1,9 +1,6 @@
-"""Logging setup and the startup banner of the "Three Prices" system.
-
-The module is named log_setup, not logging: a logging.py file in the project
-root would shadow the standard logging module and break the pandas/matplotlib
-imports.
-"""
+"""Настройка логирования и стартовый баннер системы «Три цены».
+Модуль назван log_setup, а не logging: файл logging.py затенил бы
+стандартный модуль logging и сломал импорты pandas/matplotlib."""
 
 import logging
 import os
@@ -11,10 +8,9 @@ from datetime import datetime
 
 
 def setup_logging(logs_folder: str, log_filename: str) -> str:
-    """Set up simultaneous log output to a file and to the console.
+    """Настройка одновременного вывода лога в файл и в консоль.
 
-    Creates the logs folder when needed. Returns the log file path — it is
-    needed for lines that are written to the log without the logging prefix.
+    Создаёт папку logs при необходимости, возвращает путь к лог-файлу.
     """
     os.makedirs(logs_folder, exist_ok=True)
     log_path = os.path.join(logs_folder, log_filename)
@@ -31,8 +27,7 @@ def setup_logging(logs_folder: str, log_filename: str) -> str:
 
 
 def write_banner(log_path: str) -> None:
-    """Write the startup banner to the console and to the log without the
-    standard logging prefix."""
+    """Стартовый баннер в консоль и в лог без стандартного префикса logging."""
     banner_lines = [
         "",
         "=" * 48,

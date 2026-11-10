@@ -1,22 +1,6 @@
-"""Downloading fresh quotes from MOEX ISS into the txt folder.
-
-A port of the download_moex project logic (download_moex-1d-12.py):
-
-- quarterly futures (Si, Ri, GD, SV, PT, SR, CR) are downloaded contract by
-  contract and spliced into a continuous series by expiration dates (the third
-  Thursday of the month);
-- monthly commodity futures (NG, BR) are spliced by the last trading day of
-  each contract;
-- stocks, funds and the index (IMOEX) are fetched as daily candles.
-
-Files are written into txt/ under the same names and in the same format
-(TAB: Date, Open, High, Low, Close, Volume_lot, Ticker), so data_loader.load_data()
-reads them without any changes.
-
-Enabled by the DOWNLOAD_MOEX constant in config.py. A failure on one ticker
-does not stop the others; if the network is down, the previous files stay in
-txt/ and the report is built from them.
-"""
+"""Загрузка свежих котировок с MOEX ISS в папку txt.
+Порт проекта download_moex: квартальные фьючерсы — склейка по экспирации,
+месячные (NG, BR) — по последнему дню торгов, остальное — дневные свечи."""
 
 import logging
 import os
@@ -29,33 +13,30 @@ import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# === Instrument classification (as in download_moex) ===
+# === Классификация инструментов (как в download_moex) ===
 QUARTERLY_FUTURES = ('Si', 'CR', 'Ri', 'GD', 'SV', 'PT', 'SR')
 QUARTERLY_MONTHS = {'H': 3, 'M': 6, 'U': 9, 'Z': 12}
 MONTHLY_FUTURES = ('NG', 'BR')
 MONTHLY_CODES = ('F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z')
 
-# === Network settings (as in download_moex) ===
-REQUEST_TIMEOUT = 15       # seconds per request
-MAX_RETRIES = 3            # retries on 429/5xx and network failures
-MAX_PAGES = 500            # pagination page limit (loop protection)
-PAGE_SIZE_THRESHOLD = 100  # page size threshold to stop pagination
+# === Сетевые настройки (как в download_moex) ===
+REQUEST_TIMEOUT = 15       # секунд на один запрос
+MAX_RETRIES = 3            # повторы при 429/5xx и сетевых сбоях
+MAX_PAGES = 500            # лимит страниц пагинации (защита от зацикливания)
+PAGE_SIZE_THRESHOLD = 100  # порог размера страницы для остановки пагинации
 
 NUMERIC_COLS = ['Open', 'High', 'Low', 'Close', 'Volume_lot']
 
 
 def allow_insecure_ssl() -> None:
-    """Work around the MOEX certificate problems — as in download_moex.
-
-    Called at download time, not at module import.
-    """
+    """Обход проблем с сертификатами MOEX; вызывается при загрузке, не при импорте."""
     ssl._create_default_https_context = ssl._create_unverified_context
     os.environ.update({'CURL_CA_BUNDLE': '', 'PYTHONHTTPSVERIFY': '0'})
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 
 def create_moex_session() -> requests.Session:
-    """HTTP session with a retry strategy: 429/500/502/503/504, 1s/2s/4s backoff."""
+    """HTTP-сессия со стратегией повторов: 429/500/502/503/504, выдержка 1с/2с/4с."""
     session = requests.Session()
     session.trust_env = False
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
@@ -73,25 +54,22 @@ def create_moex_session() -> requests.Session:
 
 
 def get_quarterly_expiry_date(year: int, month_num: int):
-    """MOEX quarterly futures expiration date — the third Thursday of the month."""
+    """Дата экспирации квартального фьючерса MOEX — третий четверг месяца."""
     first_day = datetime(year, month_num, 1)
     thursdays = []
     for i in range(31):
         current_day = first_day + timedelta(days=i)
         if current_day.month != month_num:
             break
-        if current_day.weekday() == 3:  # Thursday
+        if current_day.weekday() == 3:  # четверг
             thursdays.append(current_day)
     return thursdays[2].date()
 
 
 def fetch_moex_history(ticker: str, session: requests.Session, from_date: str) -> pd.DataFrame:
-    """Futures contract trading history from the eternal MOEX ISS archive.
-
-    Pagination via the start parameter, loop protection — MAX_PAGES.
-    Returns a DataFrame [Open, High, Low, Close, Volume_lot, Ticker]
-    indexed by date; an empty DataFrame on error or when there is no data.
-    """
+    """История торгов контракта из архива MOEX ISS (пагинация через start).
+    Возвращает DataFrame [Open, High, Low, Close, Volume_lot, Ticker] по датам;
+    пустой DataFrame при ошибке или отсутствии данных."""
     url = f'https://moex.com/iss/history/engines/futures/markets/forts/securities/{ticker}.json'
     all_data = []
     start_pointer = 0
@@ -152,10 +130,9 @@ def fetch_moex_history(ticker: str, session: requests.Session, from_date: str) -
 
 
 def fetch_stock_history(ticker: str, session: requests.Session, from_date: str) -> pd.DataFrame:
-    """Daily candles of a stock, fund or index via MOEX ISS.
+    """Дневные свечи акции/фонда/индекса; для IMOEX — эндпоинт markets/index.
 
-    For indexes (IMOEX) the markets/index endpoint is used, otherwise
-    markets/shares. The result format is the same as in fetch_moex_history.
+    Формат результата — как в fetch_moex_history.
     """
     clean_ticker = str(ticker).replace('\n', '').replace('\r', '').strip()
     if clean_ticker == 'IMOEX':
@@ -215,15 +192,15 @@ def fetch_stock_history(ticker: str, session: requests.Session, from_date: str) 
 
 
 def _save_txt(df: pd.DataFrame, path: str) -> None:
-    """Save the continuous series to txt in the download_moex format (TAB)."""
+    """Сохранение непрерывного ряда в txt в формате download_moex (TAB)."""
     df = df.copy()
     df[NUMERIC_COLS] = df[NUMERIC_COLS].round(4)
     df[['Open', 'High', 'Low', 'Close', 'Volume_lot', 'Ticker']].to_csv(
         path, sep='\t', index=True, index_label='Date')
 
 
-def _download_quarterly(asset: str, session: requests.Session, from_date, output_folder: str) -> None:
-    """Calendar splicing of a quarterly futures contract: each contract until its expiration date."""
+def _download_quarterly(asset: str, session: requests.Session, from_date, output_folder: str, country: str) -> None:
+    """Календарная склейка квартального фьючерса: каждый контракт до даты его экспирации."""
     today = datetime.now().date()
     timeline = []
     for year in range(from_date.year, today.year + 1):
@@ -255,14 +232,14 @@ def _download_quarterly(asset: str, session: requests.Session, from_date, output
 
     continuous = pd.concat(chunks).sort_index()
     continuous.index = pd.to_datetime(continuous.index)
-    path = os.path.join(output_folder, f'{asset}-all-d.txt')
+    path = os.path.join(output_folder, f'{country}-{asset}-all-d.txt')
     _save_txt(continuous, path)
     logging.info(f"MOEX: склейка {asset} завершена — {len(continuous)} строк "
                  f"({continuous.index[0].date()} … {continuous.index[-1].date()}), файл {path}")
 
 
-def _download_monthly(asset: str, session: requests.Session, from_date, output_folder: str) -> None:
-    """Dynamic splicing of a monthly commodity futures contract: each contract until its last trading day."""
+def _download_monthly(asset: str, session: requests.Session, from_date, output_folder: str, country: str) -> None:
+    """Динамическая склейка месячного товарного фьючерса: каждый контракт до последнего дня его торгов."""
     today = datetime.now().date()
     contracts = []
     for year in range(from_date.year, today.year + 1):
@@ -300,34 +277,29 @@ def _download_monthly(asset: str, session: requests.Session, from_date, output_f
 
     continuous = pd.concat(chunks).sort_index()
     continuous.index = pd.to_datetime(continuous.index)
-    path = os.path.join(output_folder, f'{asset}-all-d.txt')
+    path = os.path.join(output_folder, f'{country}-{asset}-all-d.txt')
     _save_txt(continuous, path)
     logging.info(f"MOEX: склейка {asset} завершена — {len(continuous)} строк "
                  f"({continuous.index[0].date()} … {continuous.index[-1].date()}), файл {path}")
 
 
-def _download_equity(ticker: str, session: requests.Session, from_date, output_folder: str) -> None:
-    """Download daily candles of a stock/fund/index into txt."""
+def _download_equity(ticker: str, session: requests.Session, from_date, output_folder: str, country: str) -> None:
+    """Загрузка дневных свечей акции/фонда/индекса в txt."""
     df_stock = fetch_stock_history(ticker, session, from_date.isoformat())
     if df_stock.empty:
         logging.warning(f"MOEX: нет данных для {ticker}")
         return
 
-    path = os.path.join(output_folder, f'{ticker}-d-5y.txt')
+    path = os.path.join(output_folder, f'{country}-{ticker}-d-5y.txt')
     _save_txt(df_stock, path)
     logging.info(f"MOEX: {ticker} — {len(df_stock)} строк "
                  f"({df_stock.index[0]} … {df_stock.index[-1]}), файл {path}")
 
 
-def download_moex_data(txt_folder: str, assets_config: dict, from_date_str: str) -> None:
-    """Download fresh quotes for the tickers from assets_config into txt_folder.
-
-    Classification as in download_moex: quarterly futures — calendar splicing,
-    NG/BR — dynamic splicing, the rest — daily stock/index candles.
-    Files are overwritten in the same format; a failure on one ticker does not
-    affect the others, and on a total failure the previous files in txt/ are
-    kept.
-    """
+def download_moex_data(txt_folder: str, assets_config: dict, from_date_str: str, country: str) -> None:
+    """Загрузка свежих котировок по тикерам из assets_config в txt_folder.
+    Классификация как в download_moex, файлы — с префиксом страны (RF-SBER-d-5y.txt).
+    Сбой одного тикера не влияет на остальные; прежние файлы при сбое сохраняются."""
     from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
     logging.info(f"MOEX: загружаю свежие данные (история с {from_date.isoformat()})")
     allow_insecure_ssl()
@@ -338,13 +310,13 @@ def download_moex_data(txt_folder: str, assets_config: dict, from_date_str: str)
             try:
                 if ticker in QUARTERLY_FUTURES:
                     logging.info(f"MOEX: фьючерс {ticker} — календарная склейка квартальных контрактов")
-                    _download_quarterly(ticker, session, from_date, txt_folder)
+                    _download_quarterly(ticker, session, from_date, txt_folder, country)
                 elif ticker in MONTHLY_FUTURES:
                     logging.info(f"MOEX: фьючерс {ticker} — динамическая склейка месячных контрактов")
-                    _download_monthly(ticker, session, from_date, txt_folder)
+                    _download_monthly(ticker, session, from_date, txt_folder, country)
                 else:
                     logging.info(f"MOEX: {ticker} — дневные свечи акции/индекса")
-                    _download_equity(ticker, session, from_date, txt_folder)
+                    _download_equity(ticker, session, from_date, txt_folder, country)
             except Exception as e:
                 logging.error(f"MOEX: ошибка загрузки {ticker}: {type(e).__name__}: {e}")
     finally:

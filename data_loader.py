@@ -1,4 +1,4 @@
-"""Reading local quotes from txt files in the txt folder."""
+"""Чтение локальных котировок из txt-файлов папки txt."""
 
 import glob
 import logging
@@ -7,16 +7,20 @@ import os
 import pandas as pd
 
 
-def _extract_ticker(file_name: str) -> str | None:
-    """Extract the ticker from the file name, e.g. 'SBER-d-5y.txt' -> 'SBER'."""
+def _extract_ticker(file_name: str, country: str) -> str | None:
+    """Тикер из имени файла с префиксом страны: 'RF-SBER-d-5y.txt' -> 'SBER'."""
+    prefix = f'{country}-'
+    if not file_name.startswith(prefix):
+        return None
+    stem = file_name[len(prefix):]
     for suffix in ('-d-5y.txt', '-all-d.txt'):
-        if file_name.endswith(suffix):
-            return file_name[:-len(suffix)]
+        if stem.endswith(suffix):
+            return stem[:-len(suffix)]
     return None
 
 
 def _parse_price_file(file_path: str) -> pd.DataFrame:
-    """Read a CSV with an arbitrary separator and normalize the date/price columns."""
+    """Чтение CSV с произвольным разделителем и нормализация колонок даты/цены."""
     df = pd.read_csv(file_path, sep=None, engine='python')
     df.columns = [str(col).strip().lower().replace('<', '').replace('>', '') for col in df.columns]
 
@@ -43,16 +47,14 @@ def _parse_price_file(file_path: str) -> pd.DataFrame:
     return df
 
 
-def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp) -> dict[str, pd.DataFrame]:
-    """Read all matching files and return {ticker: DataFrame} with data from start_date.
-
-    Files with tickers missing from assets_config are silently skipped;
-    a file with a broken structure only produces a log entry and never
-    stops the loading.
-    """
+def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp,
+              country: str) -> dict[str, pd.DataFrame]:
+    """Чтение подходящих файлов; возвращает {тикер: DataFrame} от start_date.
+    Читаются только файлы с префиксом страны; тикеры вне assets_config молча
+    пропускаются, битый файл даёт лишь запись в лог."""
     file_patterns = [
-        os.path.join(txt_folder, '*-d-5y.txt'),
-        os.path.join(txt_folder, '*-all-d.txt'),
+        os.path.join(txt_folder, f'{country}-*-d-5y.txt'),
+        os.path.join(txt_folder, f'{country}-*-all-d.txt'),
     ]
 
     all_files = []
@@ -62,9 +64,8 @@ def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp) ->
     data_dict: dict[str, pd.DataFrame] = {}
     for file_path in all_files:
         file_name = os.path.basename(file_path)
-        ticker = _extract_ticker(file_name)
+        ticker = _extract_ticker(file_name, country)
 
-        # Ignore the file if the ticker is not in the Config
         if ticker is None or ticker not in assets_config:
             continue
 
@@ -77,7 +78,6 @@ def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp) ->
             logging.error(f"Ошибка обработки {file_name}: {e}")
             continue
 
-        # Filter the data: keep only the data starting from January 1 of the computed year
         df = df[df['begin'] >= start_date].reset_index(drop=True)
 
         if df.empty:
@@ -86,5 +86,16 @@ def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp) ->
 
         data_dict[ticker] = df
         logging.info(f"Успешно прочитан файл: {file_name} ({len(df)} строк начиная с {start_date.strftime('%Y-%m-%d')})")
+
+    # Файлы без префикса страны (старое именование) не читаются — предупреждаем
+    for pattern in ('*-d-5y.txt', '*-all-d.txt'):
+        for legacy_path in glob.glob(os.path.join(txt_folder, pattern)):
+            legacy_name = os.path.basename(legacy_path)
+            if legacy_name.startswith(f'{country}-'):
+                continue
+            if _extract_ticker(f'{country}-{legacy_name}', country) in assets_config:
+                logging.warning(
+                    f"Файл {legacy_name} без префикса {country}- не читается — "
+                    f"переименуйте его в {country}-{legacy_name}")
 
     return data_dict

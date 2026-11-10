@@ -3,6 +3,42 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.0] — 2026-11-10
+
+### Added
+
+- **`COUNTRY` parameter** in `config.py`: `'RF'` — Russian market (MOEX), the
+  current behavior; `'USA'` — US market (the processing algorithm will be
+  described later).
+- **US market support** (`COUNTRY = 'USA'`): the asset list
+  **`ASSETS_CONFIG_USA`** (US stocks and ETFs: `NVDA`, `AAPL`, …)
+  and the downloader **`usa_loader.py`** (a port of the `download_us`
+  project): with `DOWNLOAD_USA = True` fresh quotes are fetched from Yahoo
+  Finance via `yfinance` — stocks/ETFs as daily OHLCV candles (unadjusted
+  `Close`), Yahoo continuous futures (`…=F`) saved under a sanitized name. The
+  depth is configurable (`DOWNLOAD_FROM`, common for both markets).
+
+### Changed
+
+- `ASSETS_CONFIG` renamed to **`ASSETS_CONFIG_RF`** (the RF asset list, used
+  while `COUNTRY = 'RF'`).
+- `main.py` selects the asset list and the download source by `COUNTRY`:
+  `'RF'` → `ASSETS_CONFIG_RF` + `DOWNLOAD_MOEX`/`moex_loader.py`, `'USA'` →
+  `ASSETS_CONFIG_USA` + `DOWNLOAD_USA`/`usa_loader.py`; an unknown value
+  exits with code 1.
+- `MOEX_DOWNLOAD_FROM` and `USA_DOWNLOAD_FROM` merged into a single
+  **`DOWNLOAD_FROM`** — the download depth of both markets is set in one
+  place.
+- The title-table continuation pages show no header at all — just the
+  continuation of the table.
+- Presentation constants (`LEVEL_COLOR`, `BASE_COLORS`, `ROWS_PER_PAGE`,
+  `SAT_MIN`, `GREEN_BASE`/`RED_BASE`) moved from `report.py` to `config.py` —
+  all configurable parameters now live in one file.
+- Quote files in `txt/` and PDF reports now carry the country prefix:
+  `txt/RF-SBER-d-5y.txt`, `txt/RF-Si-all-d.txt`,
+  `reports/YYYY-MM-DD-3price-RF-N.pdf`. Files without the prefix are no longer
+  read (a warning is logged).
+
 ## [1.1] — 2026-11-09
 
 ### Added

@@ -1,4 +1,4 @@
-"""PDF report generation for "Three Prices": title page with a table, returns, distribution and per-ticker charts."""
+"""Формирование PDF-отчёта «Трёх цен»: титул с таблицей, доходность, распределение и графики по тикерам."""
 
 import logging
 
@@ -7,31 +7,24 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.table import Table
 
+import config
 from analysis import compute_levels
-
-LEVEL_COLOR = '#ff7f0e'
-BASE_COLORS = ['#1f77b4', '#2ca02c', '#d62728', '#9467bd', '#8c564b',
-               '#e377c2', '#7f7f7f', '#bcbd22', '#17becf', '#ff7f0e']
-
-SAT_MIN = 0.35  # color saturation at zero: pale but visible
-GREEN_BASE = (0.173, 0.627, 0.173)  # #2ca02c
-RED_BASE = (0.839, 0.153, 0.153)    # #d62728
 
 
 def _return_color(v: float, vmax: float, vmin: float):
-    """(rgb, saturation) for the return v: profit — green, loss — red;
-    the saturation grows with the distance from zero (SAT_MIN floor)."""
+    """(rgb, насыщенность) для доходности v: прибыль — зелёный, убыток — красный;
+    насыщенность растёт с удалением от нуля (нижний порог SAT_MIN)."""
     if v >= 0:
-        s = SAT_MIN + (1.0 - SAT_MIN) * (v / vmax) if vmax > 0 else SAT_MIN
-        base = GREEN_BASE
+        s = config.SAT_MIN + (1.0 - config.SAT_MIN) * (v / vmax) if vmax > 0 else config.SAT_MIN
+        base = config.GREEN_BASE
     else:
-        s = SAT_MIN + (1.0 - SAT_MIN) * (v / vmin) if vmin < 0 else SAT_MIN
-        base = RED_BASE
+        s = config.SAT_MIN + (1.0 - config.SAT_MIN) * (v / vmin) if vmin < 0 else config.SAT_MIN
+        base = config.RED_BASE
     return tuple(1.0 - s + s * c for c in base), s
 
 
 def plural_years(n: int) -> str:
-    """Declension of the Russian word "год" (year): 1 год / 2–4 года / 5–20 лет (11–14 handled)."""
+    """Склонение русского слова «год»: 1 год / 2–4 года / 5–20 лет (11–14 учтены)."""
     if n % 10 == 1 and n % 100 != 11:
         return "год"
     if n % 10 in [2, 3, 4] and n % 100 not in [12, 13, 14]:
@@ -40,17 +33,16 @@ def plural_years(n: int) -> str:
 
 
 def assign_chart_colors(data_dict: dict, assets_config: dict) -> dict[str, str]:
-    """Line colors are assigned in the order of the original config dictionary."""
+    """Цвета линий назначаются в порядке исходного словаря конфига."""
     ordered_tickers = [ticker for ticker in assets_config if ticker in data_dict]
-    return {ticker: BASE_COLORS[i % len(BASE_COLORS)] for i, ticker in enumerate(ordered_tickers)}
+    return {ticker: config.BASE_COLORS[i % len(config.BASE_COLORS)] for i, ticker in enumerate(ordered_tickers)}
 
 
 def _build_table_rows(data_dict: dict, assets_config: dict,
                       price_level_map: dict, price_color_map: dict) -> list:
-    """Title table rows: header + one row per ticker in ASSETS_CONFIG order."""
+    """Строки титульной таблицы: шапка + по строке на тикер в порядке ASSETS_CONFIG_RF."""
     table_data = [['№', 'Тикер', 'Наименование', 'Текущая цена', 'Диапазон цены']]
 
-    # Build the table strictly in ASSETS_CONFIG order and number the rows
     row_number = 0
     for ticker, cfg in assets_config.items():
         if ticker in data_dict and not data_dict[ticker].empty:
@@ -64,23 +56,22 @@ def _build_table_rows(data_dict: dict, assets_config: dict,
 
 
 def _build_title_figure(table_data: list, params, continuation: bool = False):
-    """Title-page figure: header and table (a portion of table_data rows)."""
+    """Фигура титула: шапка (кроме страниц продолжения) и таблица (часть строк)."""
     fig = plt.figure(figsize=(14, 8))
     ax = fig.add_subplot(111)
     ax.axis('off')
     ax.set_xlim(0, 1)
     ax.set_ylim(0, 1)
 
-    # Page header
-    ax.text(0.5, 0.97, f'{params.today_str}. Три ценовых диапазона',
-            fontsize=20, fontweight='bold', ha='center', transform=ax.transAxes)
-    subtitle = ('Тикеры (продолжение)' if continuation else
-                f'Анализ за {params.years} {plural_years(params.years)} '
-                f'(с {params.start_date.strftime("%d.%m.%Y")})')
-    ax.text(0.5, 0.91, subtitle,
-            fontsize=14, ha='center', transform=ax.transAxes)
+    # Шапка с датой — только на первой странице титула
+    if not continuation:
+        ax.text(0.5, 0.97, f'{params.today_str}. Три ценовых диапазона',
+                fontsize=20, fontweight='bold', ha='center', transform=ax.transAxes)
+        subtitle = (f'Анализ за {params.years} {plural_years(params.years)} '
+                    f'(с {params.start_date.strftime("%d.%m.%Y")})')
+        ax.text(0.5, 0.91, subtitle,
+                fontsize=14, ha='center', transform=ax.transAxes)
 
-    # Table parameters
     col_widths = [0.05, 0.10, 0.34, 0.17, 0.19]
     row_height = 0.052
     n_rows = len(table_data)
@@ -114,40 +105,35 @@ def _build_title_figure(table_data: list, params, continuation: bool = False):
             cell_obj.get_text().set_fontweight(fontweight)
             cell_obj.get_text().set_fontsize(10)
 
-            # === Text color of the "Price range" column (j=4); the color is stored in row[5] ===
+            # Цвет колонки «Диапазон цены» (j=4) лежит в row[5]
             if i > 0 and j == 4:
                 cell_obj.get_text().set_color(row[5])
 
-    table.auto_set_font_size(False)  # otherwise matplotlib shrinks every cell to fit the longest text
+    table.auto_set_font_size(False)  # иначе matplotlib сжимает каждую ячейку под самый длинный текст
     ax.add_table(table)
 
-    # Margins check — nothing gets cut off
+    # Поля страницы
     plt.subplots_adjust(left=0.1, right=0.9, top=0.97, bottom=0.2)
     return fig
 
 
-ROWS_PER_PAGE = 20  # ticker-table data rows per title page
-
-
 def _render_title_pages(pdf: PdfPages, data_dict: dict, assets_config: dict,
                         price_level_map: dict, price_color_map: dict, params) -> None:
-    """Title pages: with many tickers the table continues onto the following
-    pages (ROWS_PER_PAGE rows each, the header is repeated)."""
+    """Титульные страницы: при большом числе тикеров таблица продолжается
+    на следующих страницах (по ROWS_PER_PAGE строк, шапка повторяется)."""
     table_data = _build_table_rows(data_dict, assets_config, price_level_map, price_color_map)
     header, rows = table_data[0], table_data[1:]
-    for start in range(0, len(rows), ROWS_PER_PAGE):
-        fig = _build_title_figure([header] + rows[start:start + ROWS_PER_PAGE], params,
+    for start in range(0, len(rows), config.ROWS_PER_PAGE):
+        fig = _build_title_figure([header] + rows[start:start + config.ROWS_PER_PAGE], params,
                                   continuation=start > 0)
         pdf.savefig(fig, dpi=150, metadata={'Creator': 'Python'})
         plt.close(fig)
 
 
 def _compute_returns(data_dict: dict) -> dict[str, float]:
-    """Return of each ticker over the period: (last close / first − 1) · 100 %.
-
-    data_dict is already filtered by start_date, so the "first close" is the
-    first trading day of the period and the "last" one is the latest available.
-    """
+    """Доходность тикера за период: (последняя close / первая − 1) · 100 %.
+    data_dict уже отфильтрован по start_date, поэтому «первая» — первый
+    торговый день периода."""
     returns: dict[str, float] = {}
     for ticker, df in data_dict.items():
         if df.empty:
@@ -160,24 +146,18 @@ def _compute_returns(data_dict: dict) -> dict[str, float]:
 
 
 def _build_returns_figure(data_dict: dict, params):
-    """The "returns by ticker" figure in the sample style: horizontal bars
-    sorted in descending order. All bars point to the right: the length follows
-    the absolute return, the sign is visible in the label and the color —
-    profit in green, loss in red; as the return approaches zero the color
-    loses saturation, but never fades to pure white (the minimum saturation
-    at zero)."""
+    """Фигура «доходность по тикерам»: горизонтальные полосы по убыванию.
+    Полосы направлены вправо: длина — модуль доходности, знак — в подписи и в
+    цвете (прибыль зелёным, убыток красным; насыщенность растёт от нуля)."""
     returns = _compute_returns(data_dict)
     sorted_tickers = sorted(returns, key=lambda t: returns[t], reverse=True)
     values = [returns[t] for t in sorted_tickers]
 
     fig, ax = plt.subplots(figsize=(14, 8))
 
-    # Color: the highest return is saturated green, the largest loss is
-    # saturated red; the closer the return is to zero, the paler the color
     vmax, vmin = max(values), min(values)
     colors = [_return_color(v, vmax, vmin)[0] for v in values]
 
-    # All bars point to the same (right) side: the length is the absolute return
     lengths = [abs(v) for v in values]
     max_abs = max(lengths) if lengths else 1.0
 
@@ -185,12 +165,11 @@ def _build_returns_figure(data_dict: dict, params):
     bars = ax.barh(y_pos, lengths, color=colors, height=0.72)
     ax.set_yticks(y_pos)
     ax.set_yticklabels(sorted_tickers, fontsize=10)
-    ax.invert_yaxis()  # the best return on top, like in the sample
+    ax.invert_yaxis()  # лучшая доходность сверху, как в образце
 
-    # Value labels at the bar ends — with the return sign
     ax.bar_label(bars, labels=[f'{v:+.1f}%' for v in values], padding=4, fontsize=9)
 
-    # Zero sits flush against the ticker axis; a margin for labels on the right
+    # Ноль вплотную к оси тикеров; справа запас под подписи
     pad = max_abs * 0.08 + 1.0
     ax.set_xlim(0, max_abs + pad)
 
@@ -198,7 +177,6 @@ def _build_returns_figure(data_dict: dict, params):
     ax.set_axisbelow(True)
     ax.set_xlabel('Доходность, %', fontsize=12)
 
-    # Page title and subtitle — like in the sample
     fig.suptitle('Доходность по тикерам', fontsize=20, fontweight='bold', y=0.97)
     fig.text(0.5, 0.905,
              f'Период: с {params.start_date.strftime("%d.%m.%Y")} по {params.today_str}',
@@ -209,7 +187,7 @@ def _build_returns_figure(data_dict: dict, params):
 
 
 def _render_returns_page(pdf: PdfPages, data_dict: dict, params) -> None:
-    """Report page 2: the returns chart for all tickers over the period."""
+    """Страница 2 отчёта: график доходности всех тикеров за период."""
     if not _compute_returns(data_dict):
         logging.warning("Нет данных для расчёта доходности — страница пропущена")
         return
@@ -219,7 +197,7 @@ def _render_returns_page(pdf: PdfPages, data_dict: dict, params) -> None:
 
 
 def plural_tickers(n: int) -> str:
-    """Declension of the Russian word "тикер" (ticker): 1 тикер / 2–4 тикера / 5–20 тикеров."""
+    """Склонение русского слова «тикер»: 1 тикер / 2–4 тикера / 5–20 тикеров."""
     if n % 10 == 1 and n % 100 != 11:
         return 'тикер'
     if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
@@ -242,9 +220,9 @@ BUCKETS = [
 
 
 def _build_distribution_figure(data_dict: dict, params):
-    """The "ticker return distribution" figure in the sample style: columns of
-    20% ranges, each holding labeled ticker cells; the cell color matches the
-    returns chart (green/red, saturation from zero)."""
+    """Фигура «распределение тикеров по доходности» в стиле образца: колонки
+    диапазонов по 20 %, в каждой — подписанные ячейки тикеров; цвет ячейки
+    совпадает с графиком доходности (зелёный/красный, насыщенность от нуля)."""
     returns = _compute_returns(data_dict)
     vmax, vmin = max(returns.values()), min(returns.values())
 
@@ -252,7 +230,7 @@ def _build_distribution_figure(data_dict: dict, params):
     for label, lo, hi in BUCKETS:
         items = [(t, v) for t, v in returns.items()
                  if (lo is None or v >= lo) and (hi is None or v < hi)]
-        items.sort(key=lambda x: x[1])  # the most extreme values at the bottom of the column
+        items.sort(key=lambda x: x[1])  # самые крайние значения внизу колонки
         columns.append((label, items))
 
     n_cols = len(BUCKETS)
@@ -292,7 +270,7 @@ def _build_distribution_figure(data_dict: dict, params):
 
 
 def _render_distribution_page(pdf: PdfPages, data_dict: dict, params) -> None:
-    """Report page 3: the ticker distribution across return ranges."""
+    """Страница 3 отчёта: распределение тикеров по диапазонам доходности."""
     if not _compute_returns(data_dict):
         logging.warning("Нет данных для распределения доходности — страница пропускается")
         return
@@ -302,8 +280,7 @@ def _render_distribution_page(pdf: PdfPages, data_dict: dict, params) -> None:
 
 
 def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict, color: str, params) -> None:
-    """A page with the chart of one ticker and the dashed "three prices" levels."""
-    # The chart is built strictly over the already filtered data
+    """Страница с графиком одного тикера и пунктирными уровнями «трёх цен»."""
     min_p, level_1_3, level_2_3, max_p = (round(v, 2) for v in compute_levels(df))
     key_levels = sorted({min_p, level_1_3, level_2_3, max_p})
     key_levels_str = [f'{lvl:.2f}' for lvl in key_levels]
@@ -312,7 +289,7 @@ def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict
     ax.plot(df['begin'], df['close'], color=color, linewidth=1.0)
 
     for level in key_levels:
-        ax.axhline(y=level, color=LEVEL_COLOR, linestyle='--', linewidth=1.2)
+        ax.axhline(y=level, color=config.LEVEL_COLOR, linestyle='--', linewidth=1.2)
 
     y_ticks = sorted(set(list(ax.get_yticks()) + key_levels))
     ax.set_yticks(y_ticks)
@@ -320,7 +297,7 @@ def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict
 
     for label in ax.yaxis.get_ticklabels():
         if label.get_text() in key_levels_str:
-            label.set_color(LEVEL_COLOR)
+            label.set_color(config.LEVEL_COLOR)
 
     asset_name = cfg['name']
     currency = cfg['currency']
@@ -338,21 +315,21 @@ def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict
 
 def generate_pdf(pdf_path: str, data_dict: dict, assets_config: dict,
                  price_level_map: dict, price_color_map: dict, params) -> None:
-    """Assemble the PDF: title pages with the ticker table, then the returns and
-    distribution pages, then one chart per ticker in ASSETS_CONFIG order."""
+    """Сборка PDF: титульные страницы с таблицей тикеров, затем страницы
+    доходности и распределения, затем по графику на тикер в порядке конфига."""
     close_colors = assign_chart_colors(data_dict, assets_config)
 
     with PdfPages(pdf_path) as pdf:
-        # --- Title pages: the ticker table (continues onto extra pages when needed) ---
+        # --- Титульные страницы: таблица тикеров ---
         _render_title_pages(pdf, data_dict, assets_config, price_level_map, price_color_map, params)
 
-        # --- Page 2: returns by ticker over the period ---
+        # --- Страница 2: доходность по тикерам за период ---
         _render_returns_page(pdf, data_dict, params)
 
-        # --- Page 3: ticker return distribution ---
+        # --- Страница 3: распределение тикеров по доходности ---
         _render_distribution_page(pdf, data_dict, params)
 
-        # --- Charts: strictly in ASSETS_CONFIG order ---
+        # --- Графики: строго в порядке ASSETS_CONFIG_RF ---
         for ticker in assets_config:
             if ticker not in data_dict:
                 continue

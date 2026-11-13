@@ -6,7 +6,7 @@ from datetime import datetime
 import pandas as pd
 
 # === Настройки ===
-YEARS = 5
+YEARS = 3
 
 # Страна анализа: 'RF' — российский рынок (MOEX); 'USA' — рынок США.
 COUNTRY = 'RF'
@@ -19,10 +19,24 @@ REPORTS_FOLDER = 'reports'
 # txt/ пишутся от этой даты. Держите запас относительно YEARS.
 DOWNLOAD_FROM = '2021-01-01'
 
-# === Загрузка данных с MOEX ===
+# === Загрузка данных с MOEX (используется moex_loader.py) ===
 # True — перед чтением txt/ скачать свежие котировки с MOEX ISS (логика
 # download_moex). False — работать только с файлами в txt/, без сети.
-DOWNLOAD_MOEX = False
+DOWNLOAD_MOEX = True
+
+# Классификация инструментов (как в download_moex): тикеры из QUARTERLY_FUTURES
+# склеиваются по датам экспирации, из MONTHLY_FUTURES — по последнему дню
+# торгов, остальные качаются как дневные свечи.
+QUARTERLY_FUTURES = ('Si', 'CR', 'Ri', 'GD', 'SV', 'PT', 'SR', 'GZ')
+QUARTERLY_MONTHS = {'H': 3, 'M': 6, 'U': 9, 'Z': 12}  # код месяца контракта → его номер
+MONTHLY_FUTURES = ('NG', 'BR')
+MONTHLY_CODES = ('F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z')
+
+# Сетевые настройки загрузки MOEX ISS.
+REQUEST_TIMEOUT = 15       # секунд на один запрос
+MAX_RETRIES = 3            # повторы при 429/5xx и сетевых сбоях
+MAX_PAGES = 500            # лимит страниц пагинации (защита от зацикливания)
+PAGE_SIZE_THRESHOLD = 100  # порог размера страницы для остановки пагинации
 
 # === Загрузка данных рынка США (Yahoo Finance, usa_loader.py) ===
 # True — перед чтением txt/ скачать свежие котировки США через yfinance
@@ -40,9 +54,7 @@ ASSETS_CONFIG_RF = {
     'LKOH':  {'name': 'Акции Лукойл',               'currency': 'RUB'},
     'NLMK':  {'name': 'Акции Новолипецкий МК',      'currency': 'RUB'},
     'OZON':  {'name': 'Акции Озон',                 'currency': 'RUB'},
-    'PLZL':  {'name': 'Акции Полюс',                'currency': 'RUB'},
     'ALRS':  {'name': 'Акции Алроса',               'currency': 'RUB'},
-    'T':     {'name': 'Акции Т-Технологии',         'currency': 'RUB'},
     'Si':    {'name': 'Фьючерсы Доллар США / Рубль','currency': 'RUB'},
     'CR':    {'name': 'Фьючерсы Юань / Рубль',      'currency': 'RUB'},
     'NG':    {'name': 'Фьючерсы на газ',            'currency': 'USD'},
@@ -52,6 +64,7 @@ ASSETS_CONFIG_RF = {
     'PT':    {'name': 'Фьючерсы на платину',        'currency': 'USD'},
     'Ri':    {'name': 'Фьючерсы Ri',                'currency': 'RUB'},
     'SR':    {'name': 'Фьючерсы Сбербанка',         'currency': 'RUB'},
+    'GZ':    {'name': 'Фьючерсы Газпрома',         'currency': 'RUB'},
 }
 
 # Список активов США для COUNTRY = 'USA' (тикеры Yahoo Finance; фьючерсы
@@ -88,6 +101,24 @@ ASSETS_CONFIG_USA = {
     'COPX': {'name': 'ETF - Global X Copper Miners ETF',         'currency': 'USD'},
         
 }
+
+# === Сигналы пересечения уровней (alerts.py, report.py) ===
+ALERTS = True   # True — искать пересечения уровней и выводить таблицу «Уровни»
+ALERTS_DAYS = 10  # окно поиска сигналов, календарных дней от последней даты данных
+
+# Уровни цены для отслеживания: {тикер из списка активов страны: [уровень, ...]}.
+# Пересечение уровня ценой close снизу вверх или сверху вниз — сигнал.
+ALERTS_LEVEL = {
+    'SBER': [300.0, 325.0],
+    'LKOH': [7000.0],
+    'GOLD': [3.1250],
+    'SV': [70.0],
+    'NG':   [3.5, 4.0],
+    'UNG':   [10.0, 12.0],
+}
+
+# Цвет уровней ALERTS_LEVEL на графиках тикеров (в стиле уровней min/max).
+ALERTS_LEVEL_COLOR = 'gray'
 
 # === Оформление отчёта (используется report.py) ===
 LEVEL_COLOR = '#ff7f0e'   # цвет пунктирных уровней и их подписей на оси Y

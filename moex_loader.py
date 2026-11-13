@@ -13,17 +13,7 @@ import urllib3
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 
-# === Классификация инструментов (как в download_moex) ===
-QUARTERLY_FUTURES = ('Si', 'CR', 'Ri', 'GD', 'SV', 'PT', 'SR')
-QUARTERLY_MONTHS = {'H': 3, 'M': 6, 'U': 9, 'Z': 12}
-MONTHLY_FUTURES = ('NG', 'BR')
-MONTHLY_CODES = ('F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z')
-
-# === Сетевые настройки (как в download_moex) ===
-REQUEST_TIMEOUT = 15       # секунд на один запрос
-MAX_RETRIES = 3            # повторы при 429/5xx и сетевых сбоях
-MAX_PAGES = 500            # лимит страниц пагинации (защита от зацикливания)
-PAGE_SIZE_THRESHOLD = 100  # порог размера страницы для остановки пагинации
+import config
 
 NUMERIC_COLS = ['Open', 'High', 'Low', 'Close', 'Volume_lot']
 
@@ -41,7 +31,7 @@ def create_moex_session() -> requests.Session:
     session.trust_env = False
     session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
     retry_strategy = Retry(
-        total=MAX_RETRIES,
+        total=config.MAX_RETRIES,
         backoff_factor=1,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=['GET'],
@@ -76,9 +66,9 @@ def fetch_moex_history(ticker: str, session: requests.Session, from_date: str) -
     page_count = 0
 
     try:
-        while page_count < MAX_PAGES:
+        while page_count < config.MAX_PAGES:
             params = {'from': from_date, 'start': start_pointer}
-            response = session.get(url, params=params, verify=False, timeout=REQUEST_TIMEOUT)
+            response = session.get(url, params=params, verify=False, timeout=config.REQUEST_TIMEOUT)
             if response.status_code != 200:
                 logging.warning(f"MOEX: HTTP {response.status_code} для {ticker}")
                 break
@@ -104,7 +94,7 @@ def fetch_moex_history(ticker: str, session: requests.Session, from_date: str) -
             start_pointer += len(page_data)
             page_count += 1
 
-            if len(page_data) < PAGE_SIZE_THRESHOLD:
+            if len(page_data) < config.PAGE_SIZE_THRESHOLD:
                 break
 
     except requests.exceptions.RequestException as e:
@@ -117,8 +107,8 @@ def fetch_moex_history(ticker: str, session: requests.Session, from_date: str) -
         logging.error(f"MOEX: непредвиденная ошибка {ticker}: {type(e).__name__}: {e}")
         return pd.DataFrame()
 
-    if page_count >= MAX_PAGES:
-        logging.warning(f"MOEX: достигнут лимит страниц ({MAX_PAGES}) для {ticker}")
+    if page_count >= config.MAX_PAGES:
+        logging.warning(f"MOEX: достигнут лимит страниц ({config.MAX_PAGES}) для {ticker}")
 
     if not all_data:
         return pd.DataFrame()
@@ -146,9 +136,9 @@ def fetch_stock_history(ticker: str, session: requests.Session, from_date: str) 
     till_date = datetime.now().date().isoformat()
 
     try:
-        while page_count < MAX_PAGES:
+        while page_count < config.MAX_PAGES:
             params = {'from': from_date, 'till': till_date, 'interval': 24, 'start': start}
-            response = session.get(url, params=params, verify=False, timeout=REQUEST_TIMEOUT)
+            response = session.get(url, params=params, verify=False, timeout=config.REQUEST_TIMEOUT)
             if response.status_code != 200:
                 logging.warning(f"MOEX: HTTP {response.status_code} для {clean_ticker}")
                 break
@@ -176,8 +166,8 @@ def fetch_stock_history(ticker: str, session: requests.Session, from_date: str) 
         logging.error(f"MOEX: непредвиденная ошибка {clean_ticker}: {type(e).__name__}: {e}")
         return pd.DataFrame()
 
-    if page_count >= MAX_PAGES:
-        logging.warning(f"MOEX: достигнут лимит страниц ({MAX_PAGES}) для {clean_ticker}")
+    if page_count >= config.MAX_PAGES:
+        logging.warning(f"MOEX: достигнут лимит страниц ({config.MAX_PAGES}) для {clean_ticker}")
 
     if not all_data:
         return pd.DataFrame()
@@ -205,7 +195,7 @@ def _download_quarterly(asset: str, session: requests.Session, from_date, output
     timeline = []
     for year in range(from_date.year, today.year + 1):
         short_digit = str(year)[-1]
-        for month_code, month_num in QUARTERLY_MONTHS.items():
+        for month_code, month_num in config.QUARTERLY_MONTHS.items():
             timeline.append({
                 'api_ticker': f'{asset}{month_code}{short_digit}',
                 'expiry_date': get_quarterly_expiry_date(year, month_num),
@@ -232,7 +222,7 @@ def _download_quarterly(asset: str, session: requests.Session, from_date, output
 
     continuous = pd.concat(chunks).sort_index()
     continuous.index = pd.to_datetime(continuous.index)
-    path = os.path.join(output_folder, f'{country}-{asset}-all-d.txt')
+    path = os.path.join(output_folder, f'{country}-{asset}-d.txt')
     _save_txt(continuous, path)
     logging.info(f"MOEX: склейка {asset} завершена — {len(continuous)} строк "
                  f"({continuous.index[0].date()} … {continuous.index[-1].date()}), файл {path}")
@@ -244,7 +234,7 @@ def _download_monthly(asset: str, session: requests.Session, from_date, output_f
     contracts = []
     for year in range(from_date.year, today.year + 1):
         short_digit = str(year)[-1]
-        for month_code in MONTHLY_CODES:
+        for month_code in config.MONTHLY_CODES:
             contracts.append(f'{asset}{month_code}{short_digit}')
 
     pools = []
@@ -277,7 +267,7 @@ def _download_monthly(asset: str, session: requests.Session, from_date, output_f
 
     continuous = pd.concat(chunks).sort_index()
     continuous.index = pd.to_datetime(continuous.index)
-    path = os.path.join(output_folder, f'{country}-{asset}-all-d.txt')
+    path = os.path.join(output_folder, f'{country}-{asset}-d.txt')
     _save_txt(continuous, path)
     logging.info(f"MOEX: склейка {asset} завершена — {len(continuous)} строк "
                  f"({continuous.index[0].date()} … {continuous.index[-1].date()}), файл {path}")
@@ -290,7 +280,7 @@ def _download_equity(ticker: str, session: requests.Session, from_date, output_f
         logging.warning(f"MOEX: нет данных для {ticker}")
         return
 
-    path = os.path.join(output_folder, f'{country}-{ticker}-d-5y.txt')
+    path = os.path.join(output_folder, f'{country}-{ticker}-d.txt')
     _save_txt(df_stock, path)
     logging.info(f"MOEX: {ticker} — {len(df_stock)} строк "
                  f"({df_stock.index[0]} … {df_stock.index[-1]}), файл {path}")
@@ -298,7 +288,7 @@ def _download_equity(ticker: str, session: requests.Session, from_date, output_f
 
 def download_moex_data(txt_folder: str, assets_config: dict, from_date_str: str, country: str) -> None:
     """Загрузка свежих котировок по тикерам из assets_config в txt_folder.
-    Классификация как в download_moex, файлы — с префиксом страны (RF-SBER-d-5y.txt).
+    Классификация — по спискам фьючерсов в config.py; файлы — с префиксом страны (RF-SBER-d.txt).
     Сбой одного тикера не влияет на остальные; прежние файлы при сбое сохраняются."""
     from_date = datetime.strptime(from_date_str, '%Y-%m-%d').date()
     logging.info(f"MOEX: загружаю свежие данные (история с {from_date.isoformat()})")
@@ -308,10 +298,10 @@ def download_moex_data(txt_folder: str, assets_config: dict, from_date_str: str,
     try:
         for ticker in assets_config:
             try:
-                if ticker in QUARTERLY_FUTURES:
+                if ticker in config.QUARTERLY_FUTURES:
                     logging.info(f"MOEX: фьючерс {ticker} — календарная склейка квартальных контрактов")
                     _download_quarterly(ticker, session, from_date, txt_folder, country)
-                elif ticker in MONTHLY_FUTURES:
+                elif ticker in config.MONTHLY_FUTURES:
                     logging.info(f"MOEX: фьючерс {ticker} — динамическая склейка месячных контрактов")
                     _download_monthly(ticker, session, from_date, txt_folder, country)
                 else:

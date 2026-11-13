@@ -3,6 +3,50 @@
 All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
+## [2.1] — 2026-11-13
+
+### Added
+
+- **Level-crossing signals (`ALERTS`)** — a new `alerts.py` module and a new
+  config section. For every `(ticker, level)` pair from `ALERTS_LEVEL` the
+  system finds the freshest crossing of the level by the closing price over
+  the whole data period (upward or downward; closing exactly at the level
+  counts too). With `ALERTS = True` the report:
+  - always shows a **"Levels"** table right after the title table — columns
+    `№ / Ticker / Name / Level crossing date / Level price / Current price /
+    Relevance`; "Relevance" is `Да` (green) when the freshest crossing
+    happened within the last `ALERTS_DAYS` calendar days, and `—` / `Нет` for
+    a level never crossed over the period;
+  - prints a footer note about the `ALERTS_DAYS` window on the last page of
+    the table (the number is taken from `config.py`);
+  - draws the `ALERTS_LEVEL` levels on every ticker chart as gray dashed
+    lines with matching gray Y-axis ticks; levels far from the price range
+    do not stretch the scale.
+- **`ALERTS` config section**: `ALERTS`, `ALERTS_DAYS`, `ALERTS_LEVEL`
+  (`{ticker: [level, ...]}`) and `ALERTS_LEVEL_COLOR`. Levels for both
+  markets may be listed; tickers outside the selected country's asset list
+  are skipped silently, a listed ticker without data — with a `[WARNING]`.
+- **MOEX loader tunables moved to `config.py`**: `QUARTERLY_FUTURES`,
+  `QUARTERLY_MONTHS`, `MONTHLY_FUTURES`, `MONTHLY_CODES`, `REQUEST_TIMEOUT`,
+  `MAX_RETRIES`, `MAX_PAGES`, `PAGE_SIZE_THRESHOLD` — contract classification
+  and network settings now live in one place, so adding a new MOEX futures
+  requires editing `config.py` only.
+
+### Changed
+
+- **Unified data file naming**: downloaded quotes always use one name —
+  `COUNTRY-TICKER-d.txt` — for every asset type: stocks, funds, indexes and
+  stitched futures alike (the `-d-5y` / `-all-d` suffixes are removed; e.g.
+  `RF-SBER-d.txt`, and `USA-ZW-F-d.txt` for the Yahoo continuous futures
+  `ZW=F`). `data_loader.py` reads only the new scheme; files with the old
+  names are no longer read — a warning suggests renaming them.
+- Price range labels reworded: «низкая / средняя / высокая» → «низкий /
+  средний / высокий».
+- The left padding of the **Name** column is halved in the title table and
+  the "Levels" table; the column headers stay centered.
+- Default RF asset list updated: added `GZ` («Фьючерсы Газпрома»), removed
+  `PLZL` and `T`.
+
 ## [2.0] — 2026-11-10
 
 ### Added

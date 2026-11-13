@@ -18,10 +18,10 @@ def classify_price(current_price: float, levels: tuple[float, float, float, floa
     """Классификация текущей цены по диапазону: возвращает (метка, цвет текста)."""
     _, level_1_3, level_2_3, _ = levels
     if current_price <= level_1_3:
-        return 'низкая', 'green'
+        return 'низкий', 'green'
     if current_price <= level_2_3:
-        return 'средняя', 'black'
-    return 'высокая', 'red'
+        return 'средний', 'black'
+    return 'высокий', 'red'
 
 
 def build_price_maps(data_dict: dict[str, pd.DataFrame]) -> tuple[dict[str, str], dict[str, str]]:

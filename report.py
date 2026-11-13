@@ -7,6 +7,7 @@ import pandas as pd
 from matplotlib.backends.backend_pdf import PdfPages
 from matplotlib.table import Table
 
+import alerts
 import config
 from analysis import compute_levels
 
@@ -93,9 +94,9 @@ def _build_title_figure(table_data: list, params, continuation: bool = False):
             if j == 0 or j == 1:
                 cell_loc = 'center'
                 text_to_display = cell
-            elif j == 2:
+            elif j == 2 and i > 0:  # данные «Наименование» слева, заголовок колонки — по центру
                 cell_loc = 'left'
-                text_to_display = f" {cell}"
+                text_to_display = cell
             elif j == 3:
                 cell_loc = 'right'
                 text_to_display = f"{cell}  "
@@ -104,6 +105,8 @@ def _build_title_figure(table_data: list, params, continuation: bool = False):
                                       text=text_to_display, loc=cell_loc, facecolor=facecolor)
             cell_obj.get_text().set_fontweight(fontweight)
             cell_obj.get_text().set_fontsize(10)
+            if j == 2 and i > 0:
+                cell_obj.PAD = 0.05  # отступ слева — вдвое меньше стандартного PAD (0.1)
 
             # Цвет колонки «Диапазон цены» (j=4) лежит в row[5]
             if i > 0 and j == 4:
@@ -120,12 +123,108 @@ def _build_title_figure(table_data: list, params, continuation: bool = False):
 def _render_title_pages(pdf: PdfPages, data_dict: dict, assets_config: dict,
                         price_level_map: dict, price_color_map: dict, params) -> None:
     """Титульные страницы: при большом числе тикеров таблица продолжается
-    на следующих страницах (по ROWS_PER_PAGE строк, шапка повторяется)."""
+    на следующих страницах (по ROWS_PER_PAGE строк, шапка повторяется).
+    Затем при ALERTS=True — таблица «Уровни» с сигналами пересечения."""
     table_data = _build_table_rows(data_dict, assets_config, price_level_map, price_color_map)
     header, rows = table_data[0], table_data[1:]
     for start in range(0, len(rows), config.ROWS_PER_PAGE):
         fig = _build_title_figure([header] + rows[start:start + config.ROWS_PER_PAGE], params,
                                   continuation=start > 0)
+        pdf.savefig(fig, dpi=150, metadata={'Creator': 'Python'})
+        plt.close(fig)
+
+    # Таблица «Уровни»: уровни ALERTS_LEVEL выбранной страны и их актуальность
+    if config.ALERTS:
+        signals = alerts.find_signals(data_dict, assets_config,
+                                      config.ALERTS_LEVEL, config.ALERTS_DAYS)
+        _render_levels_pages(pdf, signals)
+
+
+def _format_cross_moment(ts: pd.Timestamp) -> str:
+    """Момент пересечения уровня: дата; время добавляется, если оно не полуночь."""
+    if ts.hour == 0 and ts.minute == 0:
+        return ts.strftime('%d.%m.%Y')
+    return ts.strftime('%d.%m.%Y %H:%M')
+
+
+def _build_levels_figure(table_data: list, continuation: bool = False, note: bool = False):
+    """Фигура с таблицей «Уровни»: то же оформление, что у титульной таблицы."""
+    fig = plt.figure(figsize=(14, 8))
+    ax = fig.add_subplot(111)
+    ax.axis('off')
+    ax.set_xlim(0, 1)
+    ax.set_ylim(0, 1)
+
+    # Заголовок «Уровни» — только на первой странице таблицы
+    if not continuation:
+        ax.text(0.5, 0.97, 'Уровни', fontsize=20, fontweight='bold',
+                ha='center', transform=ax.transAxes)
+
+    col_widths = [0.04, 0.075, 0.245, 0.15, 0.10, 0.14, 0.11]
+    row_height = 0.052
+    n_rows = len(table_data)
+    table_height = n_rows * row_height
+    table_bottom = 0.88 - table_height
+
+    table = Table(ax, bbox=[0.07, table_bottom, 0.86, table_height])
+
+    n_cols = len(table_data[0])
+    for i, row in enumerate(table_data):
+        for j in range(n_cols):
+            cell = row[j]
+            facecolor = '#e0e0e0' if i == 0 else '#ffffff'
+            fontweight = 'bold' if i == 0 else 'normal'
+
+            # Шапка — вся по центру; данные: наименование слева, цены справа
+            if i == 0:
+                cell_loc, text_to_display = 'center', cell
+            elif j == 2:
+                cell_loc, text_to_display = 'left', cell
+            elif j in (4, 5):
+                cell_loc, text_to_display = 'right', f'{cell}  '
+            else:
+                cell_loc, text_to_display = 'center', cell
+
+            cell_obj = table.add_cell(i, j, width=col_widths[j], height=row_height,
+                                      text=text_to_display, loc=cell_loc, facecolor=facecolor)
+            cell_obj.get_text().set_fontweight(fontweight)
+            cell_obj.get_text().set_fontsize(10)
+            if j == 2:
+                cell_obj.PAD = 0.05  # отступ слева — вдвое меньше стандартного PAD (0.1)
+
+            # «Актуальность»: «Да» — зелёным, «Нет» — обычным цветом
+            if i > 0 and j == 6 and cell == 'Да':
+                cell_obj.get_text().set_color('green')
+
+    table.auto_set_font_size(False)  # иначе matplotlib сжимает каждую ячейку под самый длинный текст
+    ax.add_table(table)
+
+    # Примечание об окне актуальности — внизу страницы, только на последней
+    if note:
+        fig.text(0.5, 0.015, f'Примечание. Уровень считается актуальным, если пересечение '
+                             f'произошло в течение последних {config.ALERTS_DAYS} дней.',
+                 fontsize=9, style='italic', color='#555555', ha='center', va='bottom')
+
+    plt.subplots_adjust(left=0.1, right=0.9, top=0.97, bottom=0.2)
+    return fig
+
+
+def _render_levels_pages(pdf: PdfPages, signals: list[dict]) -> None:
+    """Страницы таблицы «Уровни» — по ROWS_PER_PAGE строк, как на титуле;
+    при ALERTS = True выводится всегда по всем тикерам из ALERTS_LEVEL."""
+    header = ['№', 'Тикер', 'Наименование', 'Дата пересечения',
+              'Цена Уровня', 'Текущая цена', 'Актуальность']
+    rows = []
+    for n, s in enumerate(signals, start=1):
+        crossed = _format_cross_moment(s['crossed_at']) if s['crossed_at'] is not None else '—'
+        rows.append([str(n), s['ticker'], s['name'], crossed,
+                     f"{s['level']:.2f}", f"{s['price']:.2f}",
+                     'Да' if s['actual'] else 'Нет'])
+
+    for start in range(0, len(rows), config.ROWS_PER_PAGE):
+        fig = _build_levels_figure([header] + rows[start:start + config.ROWS_PER_PAGE],
+                                   continuation=start > 0,
+                                   note=start + config.ROWS_PER_PAGE >= len(rows))
         pdf.savefig(fig, dpi=150, metadata={'Creator': 'Python'})
         plt.close(fig)
 
@@ -280,10 +379,14 @@ def _render_distribution_page(pdf: PdfPages, data_dict: dict, params) -> None:
 
 
 def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict, color: str, params) -> None:
-    """Страница с графиком одного тикера и пунктирными уровнями «трёх цен»."""
+    """Страница с графиком одного тикера и пунктирными уровнями «трёх цен»;
+    при ALERTS=True уровни ALERTS_LEVEL — серым, в том же стиле."""
     min_p, level_1_3, level_2_3, max_p = (round(v, 2) for v in compute_levels(df))
     key_levels = sorted({min_p, level_1_3, level_2_3, max_p})
     key_levels_str = [f'{lvl:.2f}' for lvl in key_levels]
+
+    alert_levels = sorted({round(v, 2) for v in config.ALERTS_LEVEL.get(ticker, [])}) if config.ALERTS else []
+    alert_levels_str = [f'{lvl:.2f}' for lvl in alert_levels]
 
     fig, ax = plt.subplots(figsize=(14, 8))
     ax.plot(df['begin'], df['close'], color=color, linewidth=1.0)
@@ -291,13 +394,23 @@ def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict
     for level in key_levels:
         ax.axhline(y=level, color=config.LEVEL_COLOR, linestyle='--', linewidth=1.2)
 
-    y_ticks = sorted(set(list(ax.get_yticks()) + key_levels))
+    data_ylim = ax.get_ylim()
+    for level in alert_levels:
+        ax.axhline(y=level, color=config.ALERTS_LEVEL_COLOR, linestyle='--', linewidth=1.2)
+
+    y_ticks = sorted(set(list(ax.get_yticks()) + key_levels + alert_levels))
     ax.set_yticks(y_ticks)
     ax.set_yticklabels([f'{y:.2f}' for y in y_ticks])
+
+    # set_yticks ре-автомасштабирует ось под уровни ALERTS_LEVEL — возвращаем
+    # диапазон данных, чтобы далёкие уровни не растягивали график
+    ax.set_ylim(data_ylim)
 
     for label in ax.yaxis.get_ticklabels():
         if label.get_text() in key_levels_str:
             label.set_color(config.LEVEL_COLOR)
+        elif label.get_text() in alert_levels_str:
+            label.set_color(config.ALERTS_LEVEL_COLOR)
 
     asset_name = cfg['name']
     currency = cfg['currency']
@@ -315,8 +428,9 @@ def _render_ticker_chart(pdf: PdfPages, ticker: str, df: pd.DataFrame, cfg: dict
 
 def generate_pdf(pdf_path: str, data_dict: dict, assets_config: dict,
                  price_level_map: dict, price_color_map: dict, params) -> None:
-    """Сборка PDF: титульные страницы с таблицей тикеров, затем страницы
-    доходности и распределения, затем по графику на тикер в порядке конфига."""
+    """Сборка PDF: титульные страницы с таблицей тикеров (и таблицей «Уровни»
+    при ALERTS=True), затем страницы доходности и распределения, затем по
+    графику на тикер в порядке конфига."""
     close_colors = assign_chart_colors(data_dict, assets_config)
 
     with PdfPages(pdf_path) as pdf:

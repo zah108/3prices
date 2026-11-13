@@ -8,15 +8,19 @@ import pandas as pd
 
 
 def _extract_ticker(file_name: str, country: str) -> str | None:
-    """Тикер из имени файла с префиксом страны: 'RF-SBER-d-5y.txt' -> 'SBER'."""
+    """Тикер из имени файла с префиксом страны: 'RF-SBER-d.txt' -> 'SBER'.
+    Склеенный фьючерс Yahoo хранится как 'USA-ZW-F-d.txt' -> 'ZW=F'."""
     prefix = f'{country}-'
     if not file_name.startswith(prefix):
         return None
     stem = file_name[len(prefix):]
-    for suffix in ('-d-5y.txt', '-all-d.txt'):
-        if stem.endswith(suffix):
-            return stem[:-len(suffix)]
-    return None
+    if not stem.endswith('-d.txt'):
+        return None
+    ticker = stem[:-len('-d.txt')]
+    # Непрерывный фьючерс Yahoo 'ZW=F' сохранён как 'ZW-F' — вернём исходный тикер
+    if ticker.endswith('-F'):
+        ticker = ticker[:-2] + '=F'
+    return ticker
 
 
 def _parse_price_file(file_path: str) -> pd.DataFrame:
@@ -52,14 +56,7 @@ def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp,
     """Чтение подходящих файлов; возвращает {тикер: DataFrame} от start_date.
     Читаются только файлы с префиксом страны; тикеры вне assets_config молча
     пропускаются, битый файл даёт лишь запись в лог."""
-    file_patterns = [
-        os.path.join(txt_folder, f'{country}-*-d-5y.txt'),
-        os.path.join(txt_folder, f'{country}-*-all-d.txt'),
-    ]
-
-    all_files = []
-    for pattern in file_patterns:
-        all_files.extend(glob.glob(pattern))
+    all_files = glob.glob(os.path.join(txt_folder, f'{country}-*-d.txt'))
 
     data_dict: dict[str, pd.DataFrame] = {}
     for file_path in all_files:
@@ -87,15 +84,16 @@ def load_data(txt_folder: str, assets_config: dict, start_date: pd.Timestamp,
         data_dict[ticker] = df
         logging.info(f"Успешно прочитан файл: {file_name} ({len(df)} строк начиная с {start_date.strftime('%Y-%m-%d')})")
 
-    # Файлы без префикса страны (старое именование) не читаются — предупреждаем
-    for pattern in ('*-d-5y.txt', '*-all-d.txt'):
-        for legacy_path in glob.glob(os.path.join(txt_folder, pattern)):
+    # Файлы без префикса страны (новые и старые суффиксы) не читаются — предупреждаем
+    for suffix in ('-d.txt', '-d-5y.txt', '-all-d.txt'):
+        for legacy_path in glob.glob(os.path.join(txt_folder, f'*{suffix}')):
             legacy_name = os.path.basename(legacy_path)
             if legacy_name.startswith(f'{country}-'):
                 continue
-            if _extract_ticker(f'{country}-{legacy_name}', country) in assets_config:
+            base = legacy_name[:-len(suffix)]
+            if _extract_ticker(f'{country}-{base}-d.txt', country) in assets_config:
                 logging.warning(
                     f"Файл {legacy_name} без префикса {country}- не читается — "
-                    f"переименуйте его в {country}-{legacy_name}")
+                    f"переименуйте его в {country}-{base}-d.txt")
 
     return data_dict

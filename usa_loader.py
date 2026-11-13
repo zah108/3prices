@@ -60,7 +60,7 @@ def _download_equity(ticker: str, from_date, output_folder: str, country: str) -
         logging.warning(f"USA: нет данных для {ticker}")
         return
 
-    path = os.path.join(output_folder, f'{country}-{ticker}-d-5y.txt')
+    path = os.path.join(output_folder, f'{country}-{ticker}-d.txt')
     _save_txt(df, path)
     logging.info(f"USA: {ticker} — {len(df)} строк "
                  f"({df.index[0]} … {df.index[-1]}), файл {path}")
@@ -74,7 +74,7 @@ def _download_future(ticker: str, from_date, output_folder: str, country: str) -
         return
 
     safe_name = ticker.replace('=F', '-F')
-    path = os.path.join(output_folder, f'{country}-{safe_name}-all-d.txt')
+    path = os.path.join(output_folder, f'{country}-{safe_name}-d.txt')
     _save_txt(df, path)
     logging.info(f"USA: {ticker} — {len(df)} строк "
                  f"({df.index[0]} … {df.index[-1]}), файл {path}")
